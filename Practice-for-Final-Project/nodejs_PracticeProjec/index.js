@@ -1,10 +1,24 @@
+// ================================
+// IMPORTS & CONFIGURATION
+// ================================
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const session = require('express-session')
 const routes = require('./router/friends.js')
 
+// ================================
+// CONSTANTS
+// ================================
+const PORT =5000;
+
+// ================================
+// DATA STORAGE
+// ================================
 let users = []
 
+// ================================
+// UTILITY FUNCTIONS
+// ================================
 // Check if a user with the given username already exists
 const doesExist = (username) => {
     // Filter the users array for any user with the same username
@@ -18,7 +32,6 @@ const doesExist = (username) => {
         return false;
     }
 }
-
 // Check if the user with the given username and password exists
 const authenticatedUser = (username, password) => {
     // Filter the users array for any user with the same username and password
@@ -33,18 +46,78 @@ const authenticatedUser = (username, password) => {
     }
 }
 
+
+// ================================
+// APP SETUP
+// ================================
 const app = express();
 
-app.use(session({secret:"fingerpint"},resave=true,saveUninitialized=true));
-
+// Global middleware to parse JSON bodies and use express-session
 app.use(express.json());
+app.use(session({
+    secret:"fingerprint",
+    resave: true,
+    saveUninitialized: true
+}));
 
+// ================================
+// PUBLIC ROUTES (No auth required)
+// ================================
+// Register a new user
+app.post("/register", (req, res) => {
+    const username = req.body.username;
+    const password = req.body.password;
+    
+    // Check if both username and password are provided
+    if (username && password) {
+        // Check if the user does not already exist
+        if (!doesExist(username)) {
+            // Add the new user to the users array
+            users.push({"username": username, "password": password});
+            return res.status(200).json({message: "User successfully registered. Now you can login"});
+        } else {
+            return res.status(409).json({message: "User already exists!"});
+        }
+    }
+    // Return error if username or password is missing
+    return res.status(404).json({message: "Unable to register user."});
+});
+// Login endpoint
+app.post("/login", (req, res) => {
+    const username = req.body.username;
+    const password = req.body.password;
+    
+    // Check if username or password is missing
+    if (!username || !password) {
+        return res.status(400).json({message: "Username and password required"});
+    }
+    
+    // Authenticate user
+    if (authenticatedUser(username, password)) {
+        // Generate JWT access token
+        let accessToken = jwt.sign({
+            data: password
+        }, 'access', { expiresIn: 60 * 60 });
+        
+        // Store access token and username in session
+        req.session.authorization = {
+            accessToken, username
+        }
+        return res.status(200).send("User successfully logged in");
+    } else {
+        return res.status(401).json({ message: "Invalid Login. Check username and password" });
+    }
+});
+
+// ================================
+// MIDDLEWARE FUNCTIONS
+// ================================
 // Middleware to authenticate requests to "/friends" endpoint
 app.use("/friends", function auth(req, res, next) {
     // Check if user is logged in and has valid access token
     if (req.session.authorization) {
         let token = req.session.authorization['accessToken'];
-
+        
         // Verify JWT token
         jwt.verify(token, "access", (err, user) => {
             if (!err) {
@@ -59,56 +132,14 @@ app.use("/friends", function auth(req, res, next) {
     }
 });
 
-// Login endpoint
-app.post("/login", (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
-
-    // Check if username or password is missing
-    if (!username || !password) {
-        return res.status(404).json({ message: "Error logging in" });
-    }
-
-    // Authenticate user
-    if (authenticatedUser(username, password)) {
-        // Generate JWT access token
-        let accessToken = jwt.sign({
-            data: password
-        }, 'access', { expiresIn: 60 * 60 });
-
-        // Store access token and username in session
-        req.session.authorization = {
-            accessToken, username
-        }
-        return res.status(200).send("User successfully logged in");
-    } else {
-        return res.status(208).json({ message: "Invalid Login. Check username and password" });
-    }
-});
-
-// Register a new user
-app.post("/register", (req, res) => {
-    const username = req.body.username;
-    const password = req.body.password;
-
-    // Check if both username and password are provided
-    if (username && password) {
-        // Check if the user does not already exist
-        if (!doesExist(username)) {
-            // Add the new user to the users array
-            users.push({"username": username, "password": password});
-            return res.status(200).json({message: "User successfully registered. Now you can login"});
-        } else {
-            return res.status(404).json({message: "User already exists!"});
-        }
-    }
-    // Return error if username or password is missing
-    return res.status(404).json({message: "Unable to register user."});
-});
-
-
-const PORT =5000;
-
+// ================================
+// PROTECTED ROUTES
+// ================================
+// Use the routes for the "/friends" endpoint
 app.use("/friends", routes);
 
+// ================================
+// SERVER SETUP
+// ================================
+// Start the server and log a message when it's running
 app.listen(PORT,()=>console.log("Server is running"));
